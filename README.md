@@ -12,7 +12,7 @@ The project has three main building blocks:
 
 ## Why not a basic step reference + classic PID?
 
-Thermal plants are deceptively annoying in practice:
+Thermal systems present several practical challenges in real-world control applications:
 
 - They’re **slow and inertial**. Even after cutting power, temperature can keep rising.
 - **Delay / sensor placement / hysteresis** can mess up tracking.
@@ -38,12 +38,8 @@ u(t)=K_p e(t)+K_i \, D^{-\lambda}\{e(t)\}+K_d \, D^{\mu}\{e(t)\}
 - \(K_p, K_i, K_d\) are the usual gains
 - \(\lambda\) is the **integral order**
 - \(\mu\) is the **derivative order**
-
-**My engineering reason (simple):**  
+-  
 Those extra degrees of freedom (\(\lambda, \mu\)) let me find a better balance between overshoot, speed, and smoothness than I could with PID alone.
-
-### Practical note (microcontroller reality)
-Fractional operators aren’t implemented “directly” in real time. You need a **discrete approximation** (filters / recursive forms / limited order approximations). The FOPID class in this repo is written with that reality in mind: the design is meant to be portable to embedded targets rather than being purely symbolic/continuous-time math.
 
 ---
 
@@ -60,7 +56,6 @@ I structured the project into clear layers:
    - “Is the output physically applicable?”
    - saturation, rate limiting, anti-windup logic
 4. **Objective function (tuning)**
-   - “What does *good* mean?”
    - Convert control quality into a single score
 
 ---
@@ -103,7 +98,7 @@ A common trap is building a controller that looks perfect until you run it on ha
 Real actuators have limits such as:
 
 - **Saturation (min/max):** e.g., PWM 0–100%
-- **Rate limiting:** output shouldn’t jump instantly (power electronics, EMI, comfort, safety)
+- **Rate limiting:** output shouldn’t jump instantly
 - **Safety bounds:** temperature limits, fault handling (sensor errors), etc.
 
 If constraints are ignored:
@@ -122,7 +117,7 @@ That’s why the controller/output stage needs to handle:
 
 Tuning is where most projects either become clean or messy.
 
-I wrote an objective function because “good control” is not a single metric:
+I wrote an objective function
 
 - If you only minimize error, you may get aggressive control and saturation.
 - If you only minimize overshoot, you may get a system that’s unnecessarily slow.
@@ -138,6 +133,70 @@ So the cost function can combine multiple terms, for example:
 
 ---
 
+## Genetic Algorithm tuning (why GA is in this project)
+
+With classical PID, tuning can often be done with local methods because the search space is small. With FOPID, the parameter space is larger (`Kp, Ki, Kd, λ, μ`), and once constraints/penalties are included the optimization landscape becomes messy: nonlinear, non-convex, and full of local minima.
+
+That’s why I use a **Genetic Algorithm (GA)** as the optimizer:
+
+- it does not require gradients,
+- it explores the space more globally (less likely to get stuck),
+- it handles discontinuities well (saturation penalties, constraint violations).
+
+In this repo, GA evaluates a candidate controller by running the simulation and scoring it using the objective function. In other words, I’m not tuning an abstract controller — I’m tuning the exact controller structure I actually plan to implement.
+
+---
+
+## Fractional operator implementation: ORA + `balred` (balanced reduction)
+
+Fractional terms like \(s^\alpha\) cannot be implemented directly in a discrete-time loop. To make FOPID usable, I approximate fractional operators using **Oustaloup Recursive Approximation (ORA)** over a chosen frequency band \([ \omega_L, \omega_H ]\). ORA turns \(s^\alpha\) into a rational transfer function that MATLAB can simulate and convert into state-space.
+
+The practical problem: ORA can become **high order**. High order means:
+- slower simulation (painful inside GA),
+- heavier state updates (painful for embedded),
+- more numerical overhead and debugging effort.
+
+So after ORA, I apply **balanced model reduction** using MATLAB’s `balred` to compress the approximation while keeping the behavior that matters.
+
+---
+
+## HSV logic
+
+Balanced reduction relies on **Hankel Singular Values (HSV)**. HSV gives a clean, practical interpretation:
+
+- large HSV → state strongly affects input–output dynamics (keep it)
+- small HSV → state contributes very little (safe to remove)
+
+In practice, I look at the HSV drop-off and choose a reduced order that keeps the important dynamics without carrying dead weight. This step is one of the main reasons the controller becomes feasible for repeated tuning runs and later embedded deployment.
+
+---
+
+## `MatchDC` and `StateElimMethod`: protecting steady-state behavior
+
+Thermal control is dominated by low-frequency behavior. If the reduced approximation shifts steady-state gain, you can end up with biased regulation around the target temperature.
+
+That’s why I configure reduction options intentionally, including:
+
+- **`StateElimMethod`**: controls how states are eliminated during reduction
+- **`MatchDC`**: enforces DC gain matching so steady-state behavior stays consistent
+
+The intention is simple: reduce order without breaking the near-DC behavior that thermal regulation actually depends on.
+
+---
+
+## OOP design choice (and why it matters for my App Designer application)
+
+I used an **object-oriented structure** (e.g., `FOPID`, `SCurveProfile`) because I built a MATLAB **App Designer** application around this project. In a UI-driven workflow:
+
+- the app holds persistent instances of the controller and profile objects,
+- callbacks can update parameters cleanly,
+- simulations remain repeatable,
+- plotting/logging is easier to organize.
+
+Keeping the approximation and reduction steps modular also matters here: ORA + `balred` becomes a reusable “build step” that the app can call, instead of copy/pasted code scattered across callbacks.
+
+---
+
 ## 4) Will this work on Teensy 4.0?
 
 That’s the point of the repo design: it’s meant to be **portable**.
@@ -145,7 +204,7 @@ That’s the point of the repo design: it’s meant to be **portable**.
 What matters for real hardware:
 
 - **Fixed sampling time (Ts)** and consistent update loop
-- computational load (FOPID approximation order must be reasonable)
+- computational load (ORA order + reduced order must be reasonable)
 - saturation + anti-windup
 - sensor noise handling (derivative terms amplify noise → filtering/limiting matters)
 
@@ -172,9 +231,13 @@ So when I move to Teensy, I’m not reinventing the logic—just adapting implem
   - smooth 5th-order polynomial based ramps
 - **`objectiveFunction`**
   - runs simulation and returns a single scalar cost
-  - used for tuning/optimization experiments
+  - used by GA during tuning
+- **ORA + reduction utilities**
+  - build ORA approximation for fractional operators
+  - reduce order using `balred` with HSV guidance
+  - options like `MatchDC` / `StateElimMethod`
 - (optional) **App/UI**
-  - quick parameter changes, visualization, experiments
+  - App Designer interface for quick experiments and visualization
 
 ---
 
@@ -188,18 +251,21 @@ So when I move to Teensy, I’m not reinventing the logic—just adapting implem
    - reference vs measured temperature
    - control output `u(t)`
    - saturation/overshoot/smoothness behavior
-4. Tune using the objective function:
-   - adjust weights based on what matters (comfort vs speed vs energy)
+4. Tune using GA + objective function:
+   - GA searches parameters to minimize the objective score
+   - ORA + `balred` keep the fractional implementation realistic and lightweight
 
 ---
 
-## Design decisions (short summary)
+## Design decisions
 
 - **S-curve instead of step** → smoother, safer, more realistic thermal programs  
 - **5th-order polynomial ramps** → smooth start/end behavior, reduced “shock”  
 - **FOPID** → more tuning freedom than classic PID  
 - **Constraints + anti-windup mindset** → prevents hardware-unfriendly behavior  
-- **Objective function** → systematic tuning based on real priorities  
+- **GA tuning** → practical global search for a non-convex FOPID problem  
+- **ORA + `balred` (HSV, MatchDC)** → implement fractional operators without carrying a high-order model  
+- **OOP structure** → integrates cleanly with my MATLAB App Designer application  
 
 ---
 
@@ -215,4 +281,5 @@ So when I move to Teensy, I’m not reinventing the logic—just adapting implem
 ---
 
 ## Notes
+
 It’s my attempt to build a control solution that can be **moved from simulation to real hardware** without falling apart.
