@@ -1,18 +1,18 @@
 # **FOPID Temperature Control with S-Curve Reference**
 
-This repository contains my complete setup for controlling a thermal system (**heating/cooling**). My goal is not to create *“a PID that works in simulation.”* Instead, I aim for a controller and reference generator that are **smooth, safe, and realistic** enough to transfer to a microcontroller—specifically the **Teensy 4.0**.
+This repository contains my complete setup for controlling a thermal system (**heating/cooling**). My goal is not to create *“a PID that works in simulation.”* Instead, I aim for a controller and reference generator that are safe and realistic and implement it with a microcontroller, specifically the **Teensy 4.0**.
 
 The project consists of three main components:
 
 - **FOPID controller class** (*Fractional-Order PID*)
 - **S-curve temperature reference generator** (*program/ramp planner*)
-- **Objective function (cost function)** to tune parameters based on my definition of **“good control”**
+- **Objective function (cost function)** to tune parameters based on my needs.
 
 ---
 
 ## **Why not just a basic step reference with a classic PID?**
 
-Thermal systems present practical challenges in real-world control:
+Thermal systems present some challenges in real-world control:
 
 - They are **slow** and have **inertia**. Even after cutting power, temperature can continue to rise.
 - **Delay**, **sensor placement**, and **hysteresis** can disrupt tracking.
@@ -28,7 +28,7 @@ I wanted more flexibility, so I switched to **FOPID** and paired it with a **smo
 
 ---
 
-## **What is FOPID and why did I use it?**
+## **Why Did I use FOPID**
 
 FOPID builds on the standard PID by allowing **fractional (non-integer) orders** for both the integral and derivative components. Conceptually:
 
@@ -37,10 +37,10 @@ u(t)=K_p e(t)+K_i \, D^{-\lambda}\{e(t)\}+K_d \, D^{\mu}\{e(t)\}
 \]
 
 - **\(K_p, K_i, K_d\)** are the usual gains  
-- **\(\lambda\)** is the integral order  
-- **\(\mu\)** is the derivative order  
+- **\(\lambda\)** is the derivative order  
+- **\(\mu\)** is the Integral order  
 
-These extra degrees of freedom (**\(\lambda, \mu\)**) allow me to achieve a better balance between **overshoot**, **speed**, and **smoothness** than with PID alone.
+These extra degrees of freedom (**\(\lambda, \mu\)**) allow me to get a better balance between **overshoot**, **speed**, and **smoothness** than with PID alone.
 
 ---
 
@@ -77,11 +77,9 @@ Instead, I create a smooth **S-curve profile**:
 
 ### **Why a 5th-order polynomial?**
 
-I implemented the S-curve using a **5th-order polynomial** because it provides a clean engineering compromise.
+I implemented the S-curve using a **5th-order polynomial**
 
 It allows me to control not only **position (temperature)** but also **slope (dT/dt)** and **curvature (d²T/dt²)** at both the start and end.
-
-The practical outcome: the ramp starts and ends smoothly, with fewer sudden “kicks” that lead to aggressive controller action.
 
 ### **Program phases**
 
