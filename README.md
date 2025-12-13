@@ -1,285 +1,285 @@
-# FOPID Temperature Control with S-Curve Reference
+# **FOPID Temperature Control with S-Curve Reference**
 
-This repository is my end-to-end control setup for a **thermal system** (heating/cooling). The goal isn’t “a PID that works in simulation.” The goal is a controller + reference generator that stays **smooth, safe, and realistic**, and can later be moved onto a microcontroller (my target is **Teensy 4.0**).
+This repository contains my complete setup for controlling a thermal system (**heating/cooling**). My goal is not to create *“a PID that works in simulation.”* Instead, I aim for a controller and reference generator that are **smooth, safe, and realistic** enough to transfer to a microcontroller—specifically the **Teensy 4.0**.
 
-The project has three main building blocks:
+The project consists of three main components:
 
-1. **FOPID controller class** (Fractional-Order PID)
-2. **S-curve temperature reference generator** (program/ramp planner)
-3. **Objective function (cost function)** to tune parameters based on what *I* define as “good control”
-
----
-
-## Why not a basic step reference + classic PID?
-
-Thermal systems present several practical challenges in real-world control applications:
-
-- They’re **slow and inertial**. Even after cutting power, temperature can keep rising.
-- **Delay / sensor placement / hysteresis** can mess up tracking.
-- Many applications (comfort, therapy, safety) *don’t want* sudden temperature changes.
-- Real actuators are limited: **min/max output, rate limits, safety limits**.
-
-A classic PID can “work,” but you often end up trading:
-- less overshoot ↔ slower response  
-- faster response ↔ more overshoot / more aggressive control effort
-
-I wanted more flexibility, so I moved to **FOPID** and paired it with a **smooth reference**.
+- **FOPID controller class** (*Fractional-Order PID*)
+- **S-curve temperature reference generator** (*program/ramp planner*)
+- **Objective function (cost function)** to tune parameters based on my definition of **“good control”**
 
 ---
 
-## What is FOPID and why I used it
+## **Why not just a basic step reference with a classic PID?**
 
-FOPID extends the standard PID idea by allowing the **integral and derivative orders** to be fractional (non-integer). Conceptually:
+Thermal systems present practical challenges in real-world control:
+
+- They are **slow** and have **inertia**. Even after cutting power, temperature can continue to rise.
+- **Delay**, **sensor placement**, and **hysteresis** can disrupt tracking.
+- Many applications (comfort, therapy, safety) do not tolerate sudden temperature changes.
+- Real actuators have limitations, including **minimum/maximum output**, **rate limits**, and **safety limits**.
+
+A classic PID can work, but it often results in a trade-off between:
+
+- less overshoot and a slower response  
+- a faster response and more overshoot or aggressive control effort  
+
+I wanted more flexibility, so I switched to **FOPID** and paired it with a **smooth reference**.
+
+---
+
+## **What is FOPID and why did I use it?**
+
+FOPID builds on the standard PID by allowing **fractional (non-integer) orders** for both the integral and derivative components. Conceptually:
 
 \[
 u(t)=K_p e(t)+K_i \, D^{-\lambda}\{e(t)\}+K_d \, D^{\mu}\{e(t)\}
 \]
 
-- \(K_p, K_i, K_d\) are the usual gains
-- \(\lambda\) is the **integral order**
-- \(\mu\) is the **derivative order**
--  
-Those extra degrees of freedom (\(\lambda, \mu\)) let me find a better balance between overshoot, speed, and smoothness than I could with PID alone.
+- **\(K_p, K_i, K_d\)** are the usual gains  
+- **\(\lambda\)** is the integral order  
+- **\(\mu\)** is the derivative order  
+
+These extra degrees of freedom (**\(\lambda, \mu\)**) allow me to achieve a better balance between **overshoot**, **speed**, and **smoothness** than with PID alone.
 
 ---
 
-## System architecture
+## **System architecture**
 
-I structured the project into clear layers:
+I organized the project into clear layers:
 
-1. **Reference generation (`SCurveProfile`)**
-   - “Where do I want temperature to go over time?”
-   - Smooth ramps instead of step jumps
-2. **Controller (`FOPID`)**
-   - “How do I drive the plant to follow that reference?”
-3. **Constraints (actuator realism)**
-   - “Is the output physically applicable?”
-   - saturation, rate limiting, anti-windup logic
-4. **Objective function (tuning)**
-   - Convert control quality into a single score
-
----
-
-## 1) S-curve reference: why it exists
-
-I avoid step references for temperature programs because step targets usually cause:
-
-- controller “slams” the actuator
-- output hits saturation
-- overshoot risk increases
-- temperature changes feel uncomfortable/unsafe
-
-Instead, I generate a **smooth S-curve profile**:  
-slow acceleration → faster mid-ramp → slow down near the target.
-
-### Why a 5th-order polynomial
-I implemented the S-curve using a **5th-order polynomial** style approach because it’s a clean engineering compromise:
-
-- It allows controlling boundary conditions not only for position (temperature),
-  but also for **slope (dT/dt)** and **curvature (d²T/dt²)** at the start/end.
-- Practical result: the ramp starts and ends **smoothly**, with fewer sudden “kicks”
-  that tend to create aggressive controller action.
-
-### Program phases
-The temperature program is split into three phases:
-
-1. **Rise**: `T_start → T_target` (S-curve ramp)
-2. **Hold**: maintain `T_target`
-3. **Fall**: `T_target → T_end` (S-curve ramp)
-
-This maps naturally to “therapy/program” style temperature control where you want a controlled transition, a stable plateau, then a controlled exit.
+- **Reference generation (`SCurveProfile`)**  
+  *Where do I want the temperature to go over time?*
+- **Controller (`FOPID`)**  
+  *How do I make the system follow that reference?*
+- **Constraints (actuator realism)**  
+  *Is the output physically feasible?*  
+  This includes **saturation**, **rate limiting**, and **anti-windup logic**.
+- **Objective function (tuning)**  
+  Converts control quality into a **single score**.
 
 ---
 
-## 2) Actuator constraints: avoiding the “simulation trap”
+## **1) S-curve reference: why it exists**
 
-A common trap is building a controller that looks perfect until you run it on hardware.
+I avoid step references for temperature programs since step targets often lead to:
+
+- the controller slamming the actuator  
+- outputs hitting saturation  
+- increased overshoot risk  
+- temperature changes feeling uncomfortable or unsafe  
+
+Instead, I create a smooth **S-curve profile**:
+
+- slow acceleration  
+- faster mid-ramp  
+- slowdown near the target  
+
+### **Why a 5th-order polynomial?**
+
+I implemented the S-curve using a **5th-order polynomial** because it provides a clean engineering compromise.
+
+It allows me to control not only **position (temperature)** but also **slope (dT/dt)** and **curvature (d²T/dt²)** at both the start and end.
+
+The practical outcome: the ramp starts and ends smoothly, with fewer sudden “kicks” that lead to aggressive controller action.
+
+### **Program phases**
+
+The temperature program consists of three phases:
+
+- **Rise:** `T_start → T_target` (S-curve ramp)  
+- **Hold:** maintain `T_target`  
+- **Fall:** `T_target → T_end` (S-curve ramp)  
+
+This structure aligns with therapy or program-type temperature control, where controlled transitions, stable plateaus, and controlled exits are essential.
+
+---
+
+## **2) Actuator constraints: avoiding the “simulation trap”**
+
+A common issue is building a controller that seems perfect until tested on real hardware.
 
 Real actuators have limits such as:
 
-- **Saturation (min/max):** e.g., PWM 0–100%
-- **Rate limiting:** output shouldn’t jump instantly
-- **Safety bounds:** temperature limits, fault handling (sensor errors), etc.
+- **Saturation (minimum/maximum):** for example, PWM `0–100%`  
+- **Rate limiting:** the output should not jump instantly  
+- **Safety bounds:** including temperature limits and handling faults (sensor errors)  
 
 If constraints are ignored:
-- integrator windup happens
-- when saturation releases, the system can overshoot hard
-- control becomes noisy/aggressive
 
-That’s why the controller/output stage needs to handle:
-- saturation cleanly
-- (ideally) **anti-windup**
-- optionally output smoothing / rate limits
+- integral windup can occur  
+- if saturation releases, the system can overshoot significantly  
+- control can become noisy or aggressive  
 
----
+This is why the controller/output stage must manage:
 
-## 3) Objective function
-
-Tuning is where most projects either become clean or messy.
-
-I wrote an objective function
-
-- If you only minimize error, you may get aggressive control and saturation.
-- If you only minimize overshoot, you may get a system that’s unnecessarily slow.
-
-So the cost function can combine multiple terms, for example:
-
-- **Tracking error**: IAE / ISE (integral of |e| or e²)
-- **Overshoot penalty**: extra punishment for going above target
-- **Settling / speed penalty**: discourage being too slow
-- **Control effort penalty**: discourage huge u(t)
-- **Smoothness penalty**: discourage jumpy output (Δu, total variation, etc.)
-- **Saturation penalty**: punish staying saturated too long
+- saturation effectively  
+- ideally, prevent integral windup  
+- optionally, output smoothing and rate limits  
 
 ---
 
-## Genetic Algorithm tuning (why GA is in this project)
+## **3) Objective function**
 
-With classical PID, tuning can often be done with local methods because the search space is small. With FOPID, the parameter space is larger (`Kp, Ki, Kd, λ, μ`), and once constraints/penalties are included the optimization landscape becomes messy: nonlinear, non-convex, and full of local minima.
+Tuning can make or break a project.
 
-That’s why I use a **Genetic Algorithm (GA)** as the optimizer:
+If you only minimize error, you may end up with aggressive control and saturation.  
+If you only minimize overshoot, you may create a system that is unnecessarily slow.
 
-- it does not require gradients,
-- it explores the space more globally (less likely to get stuck),
-- it handles discontinuities well (saturation penalties, constraint violations).
+So the cost function combines multiple terms, for instance:
 
-In this repo, GA evaluates a candidate controller by running the simulation and scoring it using the objective function. In other words, I’m not tuning an abstract controller — I’m tuning the exact controller structure I actually plan to implement.
-
----
-
-## Fractional operator implementation: ORA + `balred` (balanced reduction)
-
-Fractional terms like \(s^\alpha\) cannot be implemented directly in a discrete-time loop. To make FOPID usable, I approximate fractional operators using **Oustaloup Recursive Approximation (ORA)** over a chosen frequency band \([ \omega_L, \omega_H ]\). ORA turns \(s^\alpha\) into a rational transfer function that MATLAB can simulate and convert into state-space.
-
-The practical problem: ORA can become **high order**. High order means:
-- slower simulation (painful inside GA),
-- heavier state updates (painful for embedded),
-- more numerical overhead and debugging effort.
-
-So after ORA, I apply **balanced model reduction** using MATLAB’s `balred` to compress the approximation while keeping the behavior that matters.
+- **Tracking error:** IAE or ISE (integral of `|e|` or `e²`)  
+- **Overshoot penalty:** extra punishment for exceeding the target  
+- **Settling or speed penalty:** discouraging excessive slowness  
+- **Control effort penalty:** discouraging large `u(t)` values  
+- **Smoothness penalty:** discouraging jumpy outputs (`Δu`, total variation, etc.)  
+- **Saturation penalty:** punishing prolonged saturation  
 
 ---
 
-## HSV logic
+## **Genetic Algorithm tuning (why GA is included)**
 
-Balanced reduction relies on **Hankel Singular Values (HSV)**. HSV gives a clean, practical interpretation:
+With classic PID, tuning can often use local methods due to a smaller search space. However, with FOPID, the parameter space expands (`Kp, Ki, Kd, λ, μ`). When considering constraints and penalties, the optimization landscape becomes more complex: **nonlinear**, **non-convex**, and filled with **local minima**.
 
-- large HSV → state strongly affects input–output dynamics (keep it)
-- small HSV → state contributes very little (safe to remove)
+This is why I use a **Genetic Algorithm (GA)** as the optimizer:
 
-In practice, I look at the HSV drop-off and choose a reduced order that keeps the important dynamics without carrying dead weight. This step is one of the main reasons the controller becomes feasible for repeated tuning runs and later embedded deployment.
+- It does not require gradients  
+- It explores the space more thoroughly, making it less likely to get stuck  
+- It manages discontinuities well (saturation penalties and constraint violations)  
 
----
-
-## `MatchDC` and `StateElimMethod`: protecting steady-state behavior
-
-Thermal control is dominated by low-frequency behavior. If the reduced approximation shifts steady-state gain, you can end up with biased regulation around the target temperature.
-
-That’s why I configure reduction options intentionally, including:
-
-- **`StateElimMethod`**: controls how states are eliminated during reduction
-- **`MatchDC`**: enforces DC gain matching so steady-state behavior stays consistent
-
-The intention is simple: reduce order without breaking the near-DC behavior that thermal regulation actually depends on.
+In this repository, GA evaluates a candidate controller by running the simulation and scoring it using the objective function. In other words, I'm tuning the actual controller I plan to implement, not an abstract version.
 
 ---
 
-## OOP design choice (and why it matters for my App Designer application)
+## **Fractional operator implementation: ORA + `balred` (balanced reduction)**
 
-I used an **object-oriented structure** (e.g., `FOPID`, `SCurveProfile`) because I built a MATLAB **App Designer** application around this project. In a UI-driven workflow:
+Fractional terms like \(s^\alpha\) cannot be directly implemented in a discrete-time loop. To make FOPID usable, I approximate fractional operators using **Oustaloup Recursive Approximation (ORA)** over a chosen frequency band \([\omega_L, \omega_H]\). ORA converts \(s^\alpha\) into a rational transfer function that MATLAB can simulate and convert into state-space.
 
-- the app holds persistent instances of the controller and profile objects,
-- callbacks can update parameters cleanly,
-- simulations remain repeatable,
-- plotting/logging is easier to organize.
+The practical issue: ORA can result in high orders. High orders mean:
 
-Keeping the approximation and reduction steps modular also matters here: ORA + `balred` becomes a reusable “build step” that the app can call, instead of copy/pasted code scattered across callbacks.
+- slower simulation (difficult within GA)  
+- heavier state updates (challenging for embedded systems)  
+- increased numerical overhead and debugging difficulty  
 
----
-
-## 4) Will this work on Teensy 4.0?
-
-That’s the point of the repo design: it’s meant to be **portable**.
-
-What matters for real hardware:
-
-- **Fixed sampling time (Ts)** and consistent update loop
-- computational load (ORA order + reduced order must be reasonable)
-- saturation + anti-windup
-- sensor noise handling (derivative terms amplify noise → filtering/limiting matters)
-
-The real plant will never match simulation perfectly, but this framework gives me:
-- a realistic, smooth reference
-- a controller that can be constrained like real hardware
-- a tuning method that matches real priorities
-
-So when I move to Teensy, I’m not reinventing the logic—just adapting implementation details.
+After ORA, I apply balanced model reduction using MATLAB’s **`balred`** to compress the approximation while maintaining critical behavior.
 
 ---
 
-## Repository contents (logical view)
+## **HSV logic**
 
-(Exact filenames may vary, but this is the structure.)
+Balanced reduction depends on **Hankel Singular Values (HSV)**. HSV offers a clear, practical understanding:
 
-- **`FOPID` class**
+- large HSV indicates that the state strongly influences input-output dynamics (**keep it**)  
+- small HSV suggests that the state contributes little (**safe to remove**)  
+
+In practice, I analyze the HSV drop-off and select a reduced order that maintains important dynamics without unnecessary components. This step is vital for repeated tuning runs and later embedded deployment.
+
+---
+
+## **`MatchDC` and `StateElimMethod`: protecting steady-state behavior**
+
+Thermal control is dominated by low-frequency dynamics. If the reduced approximation alters steady-state gain, you might end up with biased regulation around the target temperature.
+
+For this reason, I intentionally configure reduction options, including:
+
+- **`StateElimMethod`**: dictates how states are removed during reduction  
+- **`MatchDC`**: ensures DC gain matching so that steady-state behavior remains consistent  
+
+The intent is straightforward: reduce order without compromising the near-DC behavior essential for thermal regulation.
+
+---
+
+## **OOP design choice (and its importance for my App Designer application)**
+
+I used an object-oriented structure (e.g., **`FOPID`**, **`SCurveProfile`**) because I built a MATLAB **App Designer** application around this project. In a UI-driven workflow:
+
+- the app maintains persistent instances of the controller and profile objects  
+- callbacks can update parameters smoothly  
+- simulations remain repeatable  
+- plotting and logging are easier to organize  
+
+Keeping the approximation and reduction steps modular is also important: ORA and `balred` become reusable **build steps** that the app can call, rather than duplicated code scattered across callbacks.
+
+---
+
+## **4) Will this work on Teensy 4.0?**
+
+That’s the primary design point of this repository: it is meant to be **portable**.
+
+What matters for real hardware includes:
+
+- **Fixed sampling time (Ts)** and a consistent update loop  
+- **Computational load** (ORA order and the reduced order must be manageable)  
+- **Saturation and anti-windup**  
+- Handling **sensor noise** (derivative terms amplify noise, so filtering and limiting are vital)  
+
+The real plant will never perfectly match the simulation, but this framework provides:
+
+- a realistic, smooth reference  
+- a controller that can be constrained like actual hardware  
+- a tuning method that aligns with real priorities  
+
+So when I transition to Teensy, I’m not completely overhauling the logic—just adjusting the implementation details.
+
+---
+
+## **Repository contents (logical view)**
+
+(Exact filenames may change, but this is the structure.)
+
+- **FOPID class**
   - parameters: `Kp, Ki, Kd, λ, μ`
-  - discrete update step / internal states
-  - (optional) anti-windup & output limiting logic
-- **`SCurveProfile` class**
+  - discrete update step and internal states
+  - optional anti-windup and output limiting logic
+- **SCurveProfile class**
   - `T_start, T_target, T_end`
   - `t_rise, t_hold, t_fall`
-  - smooth 5th-order polynomial based ramps
-- **`objectiveFunction`**
-  - runs simulation and returns a single scalar cost
+  - smooth 5th-order polynomial-based ramps
+- **objectiveFunction**
+  - runs simulations and returns a single scalar cost
   - used by GA during tuning
 - **ORA + reduction utilities**
-  - build ORA approximation for fractional operators
-  - reduce order using `balred` with HSV guidance
-  - options like `MatchDC` / `StateElimMethod`
-- (optional) **App/UI**
+  - builds ORA approximations for fractional operators
+  - reduces order using `balred` with HSV guidance
+  - includes options like `MatchDC` and `StateElimMethod`
+- **Optional App/UI**
   - App Designer interface for quick experiments and visualization
 
 ---
 
-## How to use (conceptual workflow)
+## **How to use (conceptual workflow)**
 
-1. Create a reference profile:
-   - define temperatures and durations (rise/hold/fall)
-2. Pick initial FOPID parameters:
-   - `Kp, Ki, Kd, λ, μ`
-3. Run simulation / test:
-   - reference vs measured temperature
-   - control output `u(t)`
-   - saturation/overshoot/smoothness behavior
-4. Tune using GA + objective function:
-   - GA searches parameters to minimize the objective score
-   - ORA + `balred` keep the fractional implementation realistic and lightweight
+- Create a reference profile: define temperatures and durations (rise/hold/fall)  
+- Set initial FOPID parameters: `Kp, Ki, Kd, λ, μ`  
+- Run simulations/tests: compare reference versus measured temperature, control output `u(t)`, saturation/overshoot/smoothness behavior  
+- Tune using GA and the objective function: GA searches parameters to minimize the objective score  
+- ORA and `balred` maintain a realistic and lightweight fractional implementation  
 
 ---
 
-## Design decisions
+## **Design decisions**
 
 - **S-curve instead of step** → smoother, safer, more realistic thermal programs  
-- **5th-order polynomial ramps** → smooth start/end behavior, reduced “shock”  
-- **FOPID** → more tuning freedom than classic PID  
-- **Constraints + anti-windup mindset** → prevents hardware-unfriendly behavior  
-- **GA tuning** → practical global search for a non-convex FOPID problem  
-- **ORA + `balred` (HSV, MatchDC)** → implement fractional operators without carrying a high-order model  
-- **OOP structure** → integrates cleanly with my MATLAB App Designer application  
+- **5th-order polynomial ramps** → smooth start/end behavior, reduced shock  
+- **FOPID** → more tuning flexibility than classic PID  
+- **Constraints and anti-windup focus** → prevent undesirable hardware behavior  
+- **GA tuning** → practical global search for the non-convex FOPID problem  
+- **ORA and `balred` (HSV, MatchDC)** → implement fractional operators without carrying a high-order model  
+- **OOP structure** → integrates well with my MATLAB App Designer application  
 
 ---
 
-## Next steps (my roadmap)
+## **Next steps (my roadmap)**
 
-- Identify the real plant using experimental data (step test / data-driven fitting)
+- Identify the real plant using experimental data (step test/data-driven fitting)  
 - Implement the final control loop on Teensy 4.0:
-  - fixed Ts scheduling
-  - sensor filtering
-  - safety/fault states
-- Re-tune objective weights using real hardware behavior
+  - fixed Ts scheduling  
+  - sensor filtering  
+  - safety and fault states  
+- Re-tune objective weights based on real hardware behavior  
 
 ---
 
-## Notes
+## **Notes**
 
-It’s my attempt to build a control solution that can be **moved from simulation to real hardware** without falling apart.
+This is my attempt to create a control solution that can transition from simulation to real hardware without breaking down.
