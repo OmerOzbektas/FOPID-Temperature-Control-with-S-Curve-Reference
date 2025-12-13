@@ -8,8 +8,6 @@ The project has three main building blocks:
 2. **S-curve temperature reference generator** (program/ramp planner)
 3. **Objective function (cost function)** to tune parameters based on what *I* define as “good control”
 
-I’m writing this from the perspective of a **4th-year Electrical & Electronics Engineering student** who wants something that can survive real hardware constraints (PWM limits, actuator saturation, smoothness, safety), not just look pretty on plots.
-
 ---
 
 ## Why not a basic step reference + classic PID?
@@ -49,7 +47,7 @@ Fractional operators aren’t implemented “directly” in real time. You need 
 
 ---
 
-## System architecture (how I think about it)
+## System architecture
 
 I structured the project into clear layers:
 
@@ -118,11 +116,9 @@ That’s why the controller/output stage needs to handle:
 - (ideally) **anti-windup**
 - optionally output smoothing / rate limits
 
-Even if the exact implementation differs between MATLAB and Teensy firmware, the design philosophy stays the same: **the controller must respect what the hardware can do.**
-
 ---
 
-## 3) Objective function: turning “good control” into a number
+## 3) Objective function
 
 Tuning is where most projects either become clean or messy.
 
@@ -139,8 +135,6 @@ So the cost function can combine multiple terms, for example:
 - **Control effort penalty**: discourage huge u(t)
 - **Smoothness penalty**: discourage jumpy output (Δu, total variation, etc.)
 - **Saturation penalty**: punish staying saturated too long
-
-This is basically me encoding my engineering priorities into math so parameter search / tuning becomes systematic instead of guesswork.
 
 ---
 
@@ -221,6 +215,4 @@ So when I move to Teensy, I’m not reinventing the logic—just adapting implem
 ---
 
 ## Notes
-
-This repo is not just “control theory practice.”  
 It’s my attempt to build a control solution that can be **moved from simulation to real hardware** without falling apart.
