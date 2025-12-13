@@ -112,7 +112,7 @@ This structure is well suited for therapy or program-based temperature control, 
 
 ---
 
-## 2) Actuator constraints: avoiding the “simulation trap”
+## 2) Actuator constraints
 
 A common mistake is designing a controller that looks perfect in simulation but fails on real hardware.
 
@@ -213,7 +213,7 @@ The goal is to reduce model order **without damaging steady-state performance**.
 
 ---
 
-## OOP design choice and App Designer integration
+## App Designer integration
 
 I used an **object-oriented structure** (e.g., `FOPID`, `SCurveProfile`) because I built a MATLAB **App Designer** application around this project.
 
