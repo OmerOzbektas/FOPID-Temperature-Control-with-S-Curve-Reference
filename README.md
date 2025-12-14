@@ -1,39 +1,39 @@
-# FOPID Temperature Control with S-Curve Reference
+# FOPID temperature control with S-Curve reference
 
-This repository holds my configuration for managing a **thermal system** (heating/cooling).  
-My objective is **not** to develop “a PID that functions in simulation only”.  
-Instead, I aim to design a **controller and reference generator that are reliable, practical, and suitable for real implementation**, specifically targeting a **Teensy 4.0** microcontroller.
+This repository contains my configurations for controlling a **thermal system** (heating/cooling).  
+“A PID that works in simulation only” is not my aim. Instead, my objective is to create a reliable controller and a reference generator that could work in reality, with special emphasis on the Teensy 4.0 microcontroller.
 
-The project is composed of three main elements:
+It is made up of three primary components:
 
 - **FOPID controller class** (Fractional-Order PID)
-- **S-curve temperature reference generator** (program / ramp planner)
-- **Objective function (cost function)** used to tune parameters based on my own control priorities
+- **S-Curve temperature reference generator** (program / ramp planner)
+- **Objective function (Cost Function)** utilized for adjustment of parameters according to my own control priorities
 
 ---
 
-## Why not just a basic step reference with a classic PID?
+## Why not a simple step reference with a classic PID?
 
-Thermal systems pose several challenges in practical control applications:
+There are several challenges in controlling thermal systems::
 
-- They respond **slowly** and exhibit **inertia**.  
-  Temperature may continue to rise even after power is removed.
-- Tracking performance is affected by **delay**, **sensor placement**, and **hysteresis**.
-- Many applications (comfort, therapy, safety) **cannot tolerate sudden temperature changes**.
-- Real actuators have constraints such as **maximum output**, **rate limits**, and **safety boundaries**.
+- Their response is **slow**, characterized by **inertia**.  
+- Temperatures can continue to climb even after power shutdowns.
+- **Delay**, **sensor position**, and **hysteresis** are factors that influence performance measurement tracking.
+- Applications related to comfort, treatment, or safety cannot withstand **sudden temperature changes**.
+- Real-world actuators are bounded by some constraints like **maximum output**, **maximum rate**, or **safe boundaries**.
 
-A traditional PID controller can work, but it usually forces a compromise between:
+
+A classic PID controller could be used, but it would necessarily mean trading-off between:
 
 - **less overshoot ↔ slower response**
-- **faster response ↔ more overshoot or aggressive control effort**
+- **faster response ↔ more overshoot or more aggressive control effort**
 
 I wanted more flexibility, so I moved to **FOPID** and paired it with a **smooth reference profile**.
 
 ---
 
-## What led me to use FOPID
+## What led me to work with FOPID
 
-FOPID extends the classical PID structure by allowing **fractional (non-integer) orders** for both the integral and derivative terms. Conceptually:
+FOPID is an extension of the ordinary PID controller, which allows **fractional orders** for both the integral and derivative components. This means that:
 
 \[
 u(t)=K_p e(t)+K_i D^{-\lambda}\{e(t)\}+K_d D^{\mu}\{e(t)\}
@@ -51,36 +51,36 @@ These additional parameters (\(\lambda, \mu\)) allow a better trade-off between 
 
 ## System architecture
 
-I structured the project into clear layers:
+I organized the work into distinct layers:
 
-### Reference generation (`SCurveProfile`)
+### Reference Generation (`SCurveProfile`)
 - Where should the temperature go over time?
-- Produces smooth ramps instead of step jumps
+- It creates smooth ramps instead of step jumps
 
 ### Controller (`FOPID`)
-- Determines how the system tracks the reference
+- determines the system's method of tracking and monitoring the reference.
 
 ### Constraints (actuator realism)
-- Ensures the output is physically feasible  
-- Includes **saturation**, **rate limiting**, and **anti-windup logic**
+- Ensures that the output is physically possible  
+- Includes **saturation**, **rate limitation**, and **anti-windup logic**
 
-### Objective function (tuning)
-- Converts control performance into a **single scalar score**
+### Objective Function (tuning)
+- Translates control performance into a **numerical value**
 
 ---
 
 ## 1) Why the S-curve reference exists
 
-I avoid step references in temperature programs because they often cause:
+I try to avoid step references in temperature plans since they tend to:
 
 - the controller to **slam the actuator**
 - output saturation
-- increased overshoot risk
-- uncomfortable or unsafe temperature transitions
+- risk of overshoot
+- temperature transitions that are either uncomfortable or unsafe
 
-Instead, I generate an **S-curve profile** with:
+Instead, I create my **S-curve profile** with:
 
-- slow acceleration
+- Slow Acceleration
 - faster mid-ramp
 - smooth deceleration near the target
 
@@ -96,39 +96,39 @@ I implemented the S-curve using a **5th-order polynomial**, because it allows co
 
 at both the beginning and the end of the ramp.
 
-This results in **smooth transitions** with fewer sudden changes that would otherwise provoke aggressive control action.
+This helps to ensure that transitions occur smoothly without harsh differences that would otherwise trigger aggressive control maneuvering.
 
 ---
 
 ## Program phases
 
-The temperature program consists of three phases:
+A temperature cycle comprises the following three stages:
 
-1. **Rise**: `T_start → T_target` (S-curve ramp)
+1. **Rise**: `T_start → T_target` (S-Curve ramp)
 2. **Hold**: maintain `T_target`
 3. **Fall**: `T_target → T_end` (S-curve ramp)
 
-This structure is well suited for therapy or program-based temperature control, where controlled transitions and stable plateaus are essential.
+This is suited for temperature control in therapy or program applications where smooth transitions between levels of temperature and temperature plateaus are critical.
 
 ---
 
 ## 2) Actuator constraints
 
-A common mistake is designing a controller that looks perfect in simulation but fails on real hardware.
+A common mistake is to design a controller that looks perfect in simulation but fails on real hardware.
 
-Real actuators impose limits such as:
+Real actuators are limited by the following:
 
 - **Saturation** (e.g., PWM 0–100%)
 - **Rate limits** (outputs should not jump abruptly)
-- **Safety bounds** (temperature limits, sensor fault handling)
+- **Safety boundaries** (Temperature Limits, Sensor Failures)
 
-If these constraints are ignored:
+If these constraints are disregarded:
 
-- integrator windup can occur
-- releasing saturation can cause large overshoot
+- Integrator windup can occur
+- releasing saturation produce a large overshoot
 - control behavior becomes noisy or unstable
 
-For this reason, the controller/output stage must handle:
+Therefore, the controller/output stage is required to process:
 
 - saturation explicitly
 - **anti-windup** behavior
@@ -138,12 +138,10 @@ For this reason, the controller/output stage must handle:
 
 ## 3) Objective function
 
-Tuning often determines whether a project succeeds or fails.
-
-- Minimizing only tracking error can lead to aggressive control and saturation.
-- Minimizing only overshoot can make the system unnecessarily slow.
-
-Therefore, the objective function combines multiple terms, such as:
+- Optimizing for tracking error alone can result in aggressive control or saturation.
+- Reducing overshoot alone could make the system too sluggish.
+  
+So, the objective function is a combination of various terms, such as:
 
 - **Tracking error**: IAE / ISE
 - **Overshoot penalty**
@@ -156,66 +154,66 @@ Therefore, the objective function combines multiple terms, such as:
 
 ## Genetic Algorithm tuning (why GA)
 
-With FOPID, the parameter set expands to  
+With FOPID, the list of parameters increases to  
 \(K_p, K_i, K_d, \lambda, \mu\).  
-Including constraints makes the optimization problem **non-convex** and full of local minima.
+Adding constraints makes the optimization problem non-convex with local minima.
 
-I therefore use a **Genetic Algorithm (GA)** because:
+I therefore employ a **Genetic Algorithm (GA)** because:
 
-- it does not require gradients
+- It does not require gradients
 - it explores the search space globally
-- it handles discontinuities (constraint penalties) well
+- it deals with discontinuities (constraint penalties) quite effectively
 
-GA evaluates each controller by running a simulation and scoring it using the objective function.  
+GA tests each controller through a simulated game with the objective function used for evaluation.  
 In other words, I am tuning the **exact controller I plan to implement**, not an abstract model.
 
 ---
 
 ## Fractional operator implementation: ORA + balanced reduction
 
-Fractional operators such as \(s^\alpha\) cannot be implemented directly in discrete time.  
-I approximate them using **Oustaloup Recursive Approximation (ORA)** over a frequency band \([\omega_L, \omega_H]\).
+Fractional operators such as \(s^\alpha\) cannot be directly realized in the discrete domain.  
+I approximate them using the **Oustaloup Recursive Approximation (ORA)** within the frequency band \([\omega_L, \omega_H]\).
 
-ORA converts the fractional operator into a **rational transfer function**, which MATLAB can simulate and convert to state space.
+ORA converts the fractional operator into a **rational transfer function**, that can be simulated by MATLAB software.
 
-The drawback is that ORA can become **high order**, leading to:
+However, the disadvantage is that ORA can become high order, causing:
 
 - slower simulations (especially problematic inside GA)
 - heavy state updates
 - numerical complexity
 
-To address this, I apply **balanced model reduction** using MATLAB’s `balred`.
+To fix this issue, I employ **balanced model reduction** with MATLAB's **balred**.
 
 ---
 
 ## HSV logic
 
-Balanced reduction relies on **Hankel Singular Values (HSV)**:
+Balanced reduction is based on **Hankel Singular Values (HSV)**:
 
 - large HSV → state strongly affects input–output behavior (keep it)
-- small HSV → state has negligible impact (safe to remove)
+- small HSV → state has negligible effect (can be safely removed)
 
-I examine the HSV decay and choose a reduced order that preserves the dominant dynamics while removing redundant states.
+I analyze the decay of the HSV system and select a reduced order that maintains the major behavior by eliminating the unnecessary states.
 
 ---
 
 ## MatchDC and StateElimMethod
 
 Thermal control is dominated by **low-frequency behavior**.  
-If reduction alters the DC gain, steady-state regulation around the target temperature can degrade.
+If the reduction causes any change in the DC gain, it could impair the regulation around the desired temperature.
 
-For this reason, I explicitly configure reduction options such as:
+Therefore, I explicitly configure options for reduction, such as:
 
-- **`StateElimMethod`**: determines how states are removed
+- **`StateElimMethod`**: decides the elimination of states
 - **`MatchDC`**: preserves DC gain consistency
 
-The goal is to reduce model order **without damaging steady-state performance**.
+The aim is to achieve a lower order of models without compromising the performance in the steady state.
 
 ---
 
 ## App Designer integration
 
-I used an **object-oriented structure** (e.g., `FOPID`, `SCurveProfile`) because I built a MATLAB **App Designer** application around this project.
+I used an **object-oriented structure** (e.g., `FOPID`, `SCurveProfile`) since I developed a MATLAB Application Designer **application** for this project.
 
 This allows:
 
@@ -228,22 +226,22 @@ ORA and balanced reduction are implemented as reusable build steps rather than d
 
 ---
 
-## Will this work on Teensy 4.0?
+## Will it work on Teensy 4.0?
 
-Portability is a core design goal.
+Portability is one of the design objectives.
 
-Key considerations for hardware include:
+Important factors for hardware include:
 
 - fixed sampling time (`Ts`)
 - reasonable computational load
 - saturation and anti-windup
 - sensor noise handling (derivative terms amplify noise)
 
-While the real plant will differ from simulation, this framework provides:
+Though the actual plant would be different from their simulation, this framework offers:
 
 - a realistic smooth reference
 - a controller compatible with actuator limits
-- a tuning strategy aligned with real-world priorities
+- a tuning approach that corresponds with real-world considerations
 
 ---
 
@@ -276,7 +274,7 @@ While the real plant will differ from simulation, this framework provides:
 
 ---
 
-## Design decisions (summary)
+## Design decisions 
 
 - **S-curve instead of step** → smoother and safer thermal control  
 - **5th-order polynomial ramps** → smooth start/end behavior  
@@ -291,7 +289,7 @@ While the real plant will differ from simulation, this framework provides:
 ## Next steps
 
 - Identify the real plant using experimental data
-- Implement the controller on Teensy 4.0
+- Apply the controller on Teensy 4.0
 - Re-tune objective weights based on hardware results
 
 ---
